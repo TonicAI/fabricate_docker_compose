@@ -1,10 +1,11 @@
 networks:
   fabricate_internal: # Internal network for communication with Database and Redis.
     driver: bridge
+  fabricate_internal_pdf: # Isolated network (no outbound access) for communication with the PDF sidecar.
+    internal: true
 
 volumes:
   fabricate_data: # Volume where Fabricate stores generated datasets.
-  fabricate_sockets: # Volume where Fabricate shares sockets for communication with PDF sidecar.
   fabricate_local_storage: # Volume where Fabricate stores files if no other cloud storage (S3) is configured.
   postgres_data: # Volume where PostgreSQL stores database data.
 
@@ -37,8 +38,6 @@ services:
   pdf-sidecar:
     image: 'quay.io/tonicai/fabricate-html-to-pdf-sidecar:latest'
     restart: unless-stopped
-    # Security: no network access. Docker provides the isolation boundary.
-    network_mode: none
     cap_drop:
       - ALL
     read_only: true
@@ -46,11 +45,10 @@ services:
       - no-new-privileges:true
     mem_limit: 1024m
     environment:
-      # PDF sidecar shouldn't have access to all other environment variables from the .env. Pass only the PDF socket path.
-      FABRICATE_PDF_SOCKET_PATH: ${FABRICATE_PDF_SOCKET_PATH}
+      # PDF sidecar shouldn't have access to all other environment variables from the .env. Pass only the PDF host and port.
+      FABRICATE_PDF_PORT: ${FABRICATE_PDF_PORT:-3100}
     volumes:
       # Chrome and Puppeteer need writable /tmp for browser profile temp dirs.
-      # The named volume on /fabricate/sockets is separate from this tmpfs.
       - type: tmpfs
         target: /tmp
         tmpfs:
@@ -59,7 +57,8 @@ services:
         target: /dev/shm
         tmpfs:
           size: 268435456  # 256 MB
-      - fabricate_sockets:/fabricate/sockets
+    networks:
+      - fabricate_internal_pdf
 
   # web: Application container with REST API and web console
   web:
@@ -77,14 +76,18 @@ services:
     env_file:
       # Pass all environment variables from the .env file to the web container.
       - .env
+    environment:
+      # PDF sidecar address (service name resolved on fabricate_internal_pdf).
+      FABRICATE_PDF_HOST: pdf-sidecar
+      FABRICATE_PDF_PORT: ${FABRICATE_PDF_PORT:-3100}
     cap_add:
       - SYS_PTRACE
     volumes:
       - fabricate_data:/fabricate/data
-      - fabricate_sockets:/fabricate/sockets
       - fabricate_local_storage:/fabricate/storage
     networks:
       - fabricate_internal
+      - fabricate_internal_pdf
   
   # worker: Background jobs processor
   worker:
@@ -103,11 +106,15 @@ services:
     env_file:
       # Pass all environment variables from the .env file to the worker container.
       - .env
+    environment:
+      # PDF sidecar address (service name resolved on fabricate_internal_pdf).
+      FABRICATE_PDF_HOST: pdf-sidecar
+      FABRICATE_PDF_PORT: ${FABRICATE_PDF_PORT:-3100}
     cap_add:
       - SYS_PTRACE
     volumes:
       - fabricate_data:/fabricate/data
-      - fabricate_sockets:/fabricate/sockets
       - fabricate_local_storage:/fabricate/storage
     networks:
       - fabricate_internal
+      - fabricate_internal_pdf

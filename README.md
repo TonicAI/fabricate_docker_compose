@@ -5,6 +5,8 @@ This repository contains the `docker-compose.yml` and `.template.env` templates 
 The Fabricate installation requires access to the Tonic private Docker container registry.  
 Reach out to support@tonic.ai to obtain your container registry login credentials.
 
+Please see [CHANGELOG](CHANGELOG.md) and upgrade instructions before migrating existing instances.
+
 ## Instructions
 
 1. Clone this repository:
